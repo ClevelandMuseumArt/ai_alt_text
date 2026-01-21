@@ -1,0 +1,7 @@
+venv
+/logs/*
+/image_data/*
+*.csv
+__pycache__
+gemini-key.json
+*_results.json
