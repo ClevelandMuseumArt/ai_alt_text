@@ -25,14 +25,17 @@ from queue import Queue
 
 
 class AltTextGenerator:
+
     def __init__(
         self,
         is_bulk=False,
         bulk_data_path=None,
         gemini_credentials_file="",
         gemini_model="",
+        piction_base_url="https://piction.clevelandart.org/cma/",
         piction_update_endpoint="",
-        piction_query_endpoint="",
+        piction_query_endpoint="!soap.jsonget?n=image_query&surl=1710855618ZZBQFTLPLCCT&search=AGE:",
+        piction_days_since_query="1",
         max_retries=3,
         min_cosine=0.85,
         min_inner_product=0.025,
@@ -41,13 +44,15 @@ class AltTextGenerator:
         output_file=None,
         with_rag=False,
         store_metrics=False,
-        max_workers=8
+        max_workers=8,
     ):
         # Update appropriate variables
         self.BULK_UPDATE = is_bulk
         self.BULK_DATA_PATH = bulk_data_path
-        self.PICTION_QUERY_ENDPOINT = piction_query_endpoint
-        self.PICTION_UPDATE_ENDPOINT = piction_update_endpoint
+        self.PICTION_BASE_URL = piction_base_url
+        self.PICTION_QUERY_DAYS_SINCE = piction_days_since_query
+        self.PICTION_QUERY_ENDPOINT = f"{piction_base_url}{piction_query_endpoint}{piction_days_since_query}"
+        self.PICTION_UPDATE_ENDPOINT = f"{piction_base_url}{piction_update_endpoint}"
         self.MAX_NUMBER_OF_RETRIES = max_retries
         self.MIN_COSINE_SIMILARITY = min_cosine
         self.MIN_INNER_PRODUCT_ARRAY = min_inner_product
@@ -134,7 +139,6 @@ class AltTextGenerator:
             )
             self.clip_model.to(device)
 
-
     def _run_clip_safe(self, fn, *args, **kwargs):
         """
         Run CLIP inference safely.
@@ -165,7 +169,6 @@ class AltTextGenerator:
                 return fn(*args, device="cpu", **kwargs)
 
             raise
-
 
     def _cache_rag_examples(self):
         """Cache RAG examples for thread-safe access"""
@@ -199,7 +202,6 @@ class AltTextGenerator:
             self.clip_executor.shutdown(wait=True)
         except Exception:
             pass
-
 
     def _load_prompt(self):
         """Load the alt text generation prompt from file"""
@@ -248,6 +250,10 @@ class AltTextGenerator:
             return Image.open(BytesIO(response.content)).convert("RGB")
         else:
             return Image.open(image_src).convert("RGB")
+
+    def _load_piction_image(self, image_location):
+        piction_url = f"{self.PICTION_BASE_URL}{image_location}"
+        return self._load_image(piction_url)
 
     # Generate image embeddings tool using CLIP
     def generate_image_embeddings(self, image_src, device):
@@ -675,7 +681,6 @@ class AltTextGenerator:
 
             self.csv_queue.task_done()
 
-
     # Save data tool - modified for incremental saving
     def save_data(self, result, image_id=None, is_rag=False):
         """Save individual result immediately"""
@@ -768,6 +773,33 @@ class AltTextGenerator:
             self.csv_queue.put((failure, False))
             return image_id
 
+    def _process_piction_updated_images(self, results):
+        processed_results = []
+        for item in enumerate(results):
+            try:
+                image_id = item.get('id')
+                web_image_data = item.get('wq')
+                web_image_info = web_image_data.get('1')
+                web_image_src = web_image_info.get('u')
+                web_image_url = f"{self.PICTION_BASE_URL}{web_image_src}"
+                accession_number = web_image_info.get('f').split('.jpg')[0]
+                processed_results.append({
+                    'image_id': image_id,
+                    'image_src': web_image_url,
+                    'accession_number': accession_number
+                })
+            except Exception:
+                self.logger.warning(f"Failed to process {item}")
+                continue
+        return processed_results
+
+    def _query_piction_updated_images(self):
+        data = requests.get(self.PICTION_QUERY_ENDPOINT)
+        res_data = data.json()
+        results = []
+        if res_data.get('r'):
+            results = res_data.get('r')
+        return results
 
     # Generation tool - modified for streaming
     def run_generation(self):
@@ -816,91 +848,44 @@ class AltTextGenerator:
                     self.logger.info(f"RAG results saved to {self.rag_output_file}")
             else:
                 self.logger.info(
-                    f"Starting generation from Piction API: {self.PICTION_QUERY_ENDPOINT}"
+                    f"Starting generation from Piction Query API"
                 )
                 # Loop through results from piction_query_endpoint
                 try:
-                    response = requests.get(self.PICTION_QUERY_ENDPOINT)
-                    if response.status_code == 200:
-                        data = response.json()
-                        recent_uploads = data.get("r")
-
-                        if recent_uploads is None or len(recent_uploads) == 0:
-                            # Detailed diagnostic message and abort processing to avoid downstream errors
-                            try:
-                                keys = list(data.keys()) if isinstance(data, dict) else None
-                                truncated = json.dumps(data, ensure_ascii=False)[
-                                    :500
-                                ].replace("\n", " ")
-                            except Exception:
-                                keys = None
-                                truncated = "Unable to serialize response"
-                            self.logger.warning(
-                                f"No recent uploads returned from Piction API endpoint: {self.PICTION_QUERY_ENDPOINT}. "
-                                f"HTTP status: {response.status_code}. Response keys: {keys}. "
-                                f"Response (truncated 500 chars): {truncated}"
-                            )
-                            return
-
-                        self.logger.info(f"Retrieved {len(recent_uploads)} images from API")
-                        for idx, item in enumerate(recent_uploads, 1):
-                            image_id = item.get("id")
-                            web_image_data = item.get("wq")
-                            web_url_info = web_image_data.get("1")
-                            image_src = web_url_info.get("u")
-                            meta_data = item.get("m")
-                            accession_number = ""
-                            has_manually_written_alt_text = False
-
-                            for meta_item in meta_data:
-                                if (
-                                    meta_item.get("c") == "ALT_TEXT_MEETS_THRESHOLD"
-                                    or meta_item.get("d") == "ALT_TEXT_MEETS_THRESHOLD"
-                                ):
-                                    has_manually_written_alt_text = (
-                                        meta_item.get("v") == "OVERWRITTEN"
-                                    )
-                                if (
-                                    meta_item.get("c") == "ACCESSION_NUMBER"
-                                    or meta_item.get("d") == "Accession Number"
-                                ):
-                                    accession_number = meta_item.get("v")
-
-                            if has_manually_written_alt_text:
-                                self.logger.info(
-                                    f"Skipping image: {image_id} because it has manually written alt text"
-                                )
-                                continue
-
+                    self.logger.info(f"Looking for piction uploads from last {self.PICTION_QUERY_DAYS_SINCE} days")
+                    unprocessed_updates = self._query_piction_updated_images()
+                    if len(unprocessed_updates) is 0:
+                        self.logger.info(f"No recent piction uploads in {self.PICTION_QUERY_DAYS_SINCE} days")
+                        return
+                    processed_updates = self._process_piction_updated_images(unprocessed_updates)
+                    for idx, item in enumerate(processed_updates):
+                        image_id = item.get('image_id')
+                        self.logger.info(f"Processing image {idx}/{len(processed_updates)}: {image_id}")
+                        accession_number = item.get('accession_number')
+                        image_src = item.get('image_src')
+                        # If WITH_RAG, also generate RAG version
+                        if self.WITH_RAG:
                             self.logger.info(
-                                f"Processing image {idx}/{len(recent_uploads)}: {image_id}"
+                                f"Generating RAG version for image {image_id}"
+                            )
+                            rag_result = self.generate_alt_text_with_forced_rag(
+                                image_src, accession_number
+                            )
+                            rag_result["image_id"] = image_id
+                            self.save_data(rag_result, image_id, is_rag=True)
+                        else:
+                            self.logger.info(
+                                f"Generating alt text for image {image_id}"
                             )
                             result = self.generate_alt_text(image_src, accession_number)
                             result["image_id"] = image_id
-
                             self.save_data(result, image_id, is_rag=False)
-
-                            # If WITH_RAG, also generate RAG version
-                            if self.WITH_RAG:
-                                self.logger.info(
-                                    f"Generating RAG version for image {image_id}"
-                                )
-                                rag_result = self.generate_alt_text_with_forced_rag(
-                                    image_src, accession_number
-                                )
-                                rag_result["image_id"] = image_id
-                                self.save_data(rag_result, image_id, is_rag=True)
-
-                        self.logger.info("API generation completed")
-                    else:
-                        self.logger.error(
-                            f"Failed to query API: HTTP {response.status_code}"
-                        )
+                    self.logger.info("Generation of alt text using piction query / update endpoints complete")
                 except Exception as e:
-                    self.logger.error(f"Error querying endpoint: {e}")
+                    self.logger.error(f"Error updating individual images: {e}")
 
         except Exception:
-             ### GLOBAL SAFETY NET
+            ### GLOBAL SAFETY NET
             self.logger.critical(
                 "[RUN_GENERATION CRASH PREVENTED]",
                 exc_info=True,
@@ -945,10 +930,22 @@ Examples:
         "--piction-update", type=str, default="", help="Piction update endpoint"
     )
     parser.add_argument(
+        "--piction-base-url",
+        type=str,
+        default="https://piction.clevelandart.org/cma/",
+        help="Base URL for piction queries, update, and image endpoints"
+    )
+    parser.add_argument(
         "--piction-query",
         type=str,
-        default="https://piction.clevelandart.org/cma/!soap.jsonget?n=image_query&surl=1710855618ZZBQFTLPLCCT&search=AGE:1",
+        default="!soap.jsonget?n=image_query&surl=1710855618ZZBQFTLPLCCT&search=AGE:",
         help="Piction query endpoint",
+    )
+    parser.add_argument(
+        "--piction-days-since-query",
+        type=str,
+        default="1",
+        help="Piction days since query parameter"
     )
     parser.add_argument(
         "--max-retries",
