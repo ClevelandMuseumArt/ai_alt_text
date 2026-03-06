@@ -38,7 +38,6 @@ class AltTextGenerator:
         piction_days_since_query="1",
         max_retries=3,
         min_cosine=0.85,
-        min_inner_product=0.025,
         prompt_file="",
         rag_directory="",
         output_file=None,
@@ -55,7 +54,6 @@ class AltTextGenerator:
         self.PICTION_UPDATE_ENDPOINT = f"{piction_base_url}{piction_update_endpoint}"
         self.MAX_NUMBER_OF_RETRIES = max_retries
         self.MIN_COSINE_SIMILARITY = min_cosine
-        self.MIN_INNER_PRODUCT_ARRAY = min_inner_product
         self.ALT_TEXT_PROMPT_FILE = prompt_file
         self.RAG_EXAMPLES = rag_directory
         self.WITH_RAG = with_rag
@@ -289,15 +287,11 @@ class AltTextGenerator:
             caption_embedding.reshape(1, -1), img_embedding.reshape(1, -1)
         )[0][0]
 
-        # Calculate inner product for compatibility
-        inner_product_score = np.inner(caption_embedding, img_embedding)
-
         self.logger.debug(
-            f"CLIP cosine similarity: {cosine_similarity_score:.4f}, Inner product: {inner_product_score:.4f}"
+            f"CLIP cosine similarity: {cosine_similarity_score:.4f}"
         )
 
         metrics = {
-            "inner_product": float(inner_product_score),
             "cosine_similarity": float(cosine_similarity_score),
         }
 
@@ -463,7 +457,7 @@ class AltTextGenerator:
             "attempts": self.MAX_NUMBER_OF_RETRIES,
         }
         if self.STORE_METRICS:
-            result.update({"inner_product": 0.0, "cosine_similarity": 0.0})
+            result.update({"cosine_similarity": 0.0})
         return result
 
     # Generate alt text
@@ -554,7 +548,7 @@ class AltTextGenerator:
 
         result = {"caption": "", "ALT_TEXT_MEETS_THRESHOLD": "NO", "attempts": 1}
         if self.STORE_METRICS:
-            result.update({"inner_product": 0.0, "cosine_similarity": 0.0})
+            result.update({"cosine_similarity": 0.0})
         return result
 
     # Generate alt text with forced RAG (for --with-rag option)
@@ -613,20 +607,20 @@ class AltTextGenerator:
                     "attempts": 1,
                 }
                 if self.STORE_METRICS:
-                    result.update({"inner_product": 0.0, "cosine_similarity": 0.0})
+                    result.update({"cosine_similarity": 0.0})
                 return result
         except Exception as e:
             self.logger.error(f"Error generating alt text with forced RAG: {e}")
             result = {"caption": "", "ALT_TEXT_MEETS_THRESHOLD": "NO", "attempts": 1}
             if self.STORE_METRICS:
-                result.update({"inner_product": 0.0, "cosine_similarity": 0.0})
+                result.update({"cosine_similarity": 0.0})
             return result
 
     def _get_csv_fieldnames(self):
         """Get fieldnames for CSV based on configuration"""
         fieldnames = ["image_id", "caption", "ALT_TEXT_MEETS_THRESHOLD", "attempts"]
         if self.STORE_METRICS:
-            fieldnames.extend(["inner_product", "cosine_similarity"])
+            fieldnames.append("cosine_similarity")
         return fieldnames
 
     def _initialize_csv(self):
@@ -766,9 +760,7 @@ class AltTextGenerator:
             }
 
             if self.STORE_METRICS:
-                failure.update(
-                    {"inner_product": 0.0, "cosine_similarity": 0.0}
-                )
+                failure.update({"cosine_similarity": 0.0})
 
             self.csv_queue.put((failure, False))
             return image_id
@@ -960,12 +952,6 @@ Examples:
         help="Minimum cosine similarity threshold (default: 0.25)",
     )
     parser.add_argument(
-        "--min-inner-product",
-        type=float,
-        default=0.1,
-        help="Minimum inner product threshold (default: 0.1)",
-    )
-    parser.add_argument(
         "--prompt-file", type=str, default="", help="Path to prompt template file"
     )
     parser.add_argument(
@@ -982,7 +968,7 @@ Examples:
     parser.add_argument(
         "--store-metrics",
         action="store_true",
-        help="Store cosine similarity and inner product metrics with results",
+        help="Store cosine similarity metric with results",
     )
     parser.add_argument(
         "--output-file",
@@ -1050,7 +1036,6 @@ Examples:
         piction_query_endpoint=args.piction_query,
         max_retries=args.max_retries,
         min_cosine=args.min_cosine,
-        min_inner_product=args.min_inner_product,
         prompt_file=args.prompt_file,
         rag_directory=args.rag_directory,
         output_file=args.output_file,
