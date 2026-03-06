@@ -81,7 +81,11 @@ class ArtworkMetadata:
                 has_iconic_people=data.get("has_iconic_people", False),
                 raw_response=json_str,
             )
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            logging.warning(
+                f"Failed to parse classifier response (defaulting to 2D artwork): {e}. "
+                f"Raw response: {json_str[:200]}"
+            )
             return cls(False, False, False, False, "none", raw_response=json_str)
 
 
