@@ -879,7 +879,7 @@ class AltTextGenerator:
 
     def _process_piction_updated_images(self, results):
         processed_results = []
-        for item in enumerate(results):
+        for item in results:
             try:
                 image_id = item.get('id')
                 web_image_data = item.get('wq')
