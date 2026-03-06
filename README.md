@@ -15,7 +15,7 @@ python -m artwork_bulk_load
 #### generate_alt_text.py
 Gemini 3 Model with both RAG and single shot prompt, storing metrics:
 ```shell
-python -m generate_alt_text --bulk --bulk-data-path <custom csv file path here> --gemini-credentials-file gemini-key.json --gemini-model gemini-3-pro-preview --prompt-file prompt.md --rag-directory rag_examples --with-rag --store-metrics --log-level DEBUG
+python -m generate_alt_text --bulk --bulk-data-path <custom csv file path here> --gemini-credentials-file gemini-key.json --classifier-model gemini-3-pro-preview --captioner-model gemini-3-flash-preview --refinement-model gemini-3-flash-preview --rag-directory rag_examples --with-rag --store-metrics --log-level DEBUG
 ```
 
 #### analyze_results.py

@@ -2,7 +2,9 @@ import argparse
 import json
 import csv
 import os
+import re
 import requests
+from dataclasses import dataclass
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from io import BytesIO
@@ -10,6 +12,7 @@ from pathlib import Path
 import time
 from datetime import datetime
 import logging
+import httpx
 from google import genai
 from google.genai import types
 from google.oauth2 import service_account
@@ -24,6 +27,142 @@ import threading
 from queue import Queue
 
 
+# Prompt helpers
+_PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+
+def _extract_json(text: str) -> str:
+    match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text)
+    return match.group(1).strip() if match else text.strip()
+
+
+def _load_prompt(name: str) -> str:
+    path = _PROMPTS_DIR / f"{name}.txt"
+    if not path.exists():
+        raise FileNotFoundError(f"Prompt file not found: {path}")
+    return path.read_text(encoding="utf-8")
+
+
+def _make_image_part(url: str) -> types.Part:
+    """Fetch image bytes from a URL and return a Gemini Part."""
+    with httpx.Client(timeout=30.0) as client:
+        r = client.get(url)
+        r.raise_for_status()
+        data = r.content
+    u = url.lower()
+    if   u.endswith(".png"):  mime = "image/png"
+    elif u.endswith(".gif"):  mime = "image/gif"
+    elif u.endswith(".webp"): mime = "image/webp"
+    else:                     mime = "image/jpeg"
+    return types.Part.from_bytes(data=data, mime_type=mime)
+
+
+# Image classifier
+@dataclass
+class ArtworkMetadata:
+    has_people:   bool
+    is_abstract:  bool
+    is_3d:        bool
+    has_text:     bool
+    people_count: str
+    has_iconic_people: bool = False
+    raw_response: str = ""
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "ArtworkMetadata":
+        try:
+            data = json.loads(_extract_json(json_str))
+            return cls(
+                has_people=data.get("has_people", False),
+                is_abstract=data.get("is_abstract", False),
+                is_3d=data.get("is_3d", False),
+                has_text=data.get("has_text", False),
+                people_count=data.get("people_count", "none"),
+                has_iconic_people=data.get("has_iconic_people", False),
+                raw_response=json_str,
+            )
+        except json.JSONDecodeError:
+            return cls(False, False, False, False, "none", raw_response=json_str)
+
+
+_CLASSIFIER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "has_people":        {"type": "boolean"},
+        "is_abstract":       {"type": "boolean"},
+        "is_3d":             {"type": "boolean"},
+        "has_text":          {"type": "boolean"},
+        "people_count":      {"type": "string",
+                              "enum": ["none", "single", "few", "crowd"]},
+        "has_iconic_people": {"type": "boolean"},
+    },
+    "required": ["has_people", "is_abstract", "is_3d", "has_text", "people_count", "has_iconic_people"],
+}
+
+_SAFETY_SETTINGS = [
+    types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH",       threshold="OFF"),
+    types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="OFF"),
+    types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="OFF"),
+    types.SafetySetting(category="HARM_CATEGORY_HARASSMENT",        threshold="OFF"),
+]
+
+
+def _classify_image(image_src: str, client: genai.Client, model: str, title: str | None = None) -> ArtworkMetadata:
+    """Run the classifier prompt against the image and return structured metadata."""
+    image_part = _make_image_part(image_src)
+    classifier_prompt = _load_prompt("classifier")
+    if title:
+        classifier_prompt = f"Artwork title: {title}\n\n{classifier_prompt}"
+    response = client.models.generate_content(
+        model=model,
+        contents=[types.Content(role="user", parts=[
+            image_part,
+            types.Part.from_text(text=classifier_prompt),
+        ])],
+        config=types.GenerateContentConfig(
+            temperature=0.3,
+            max_output_tokens=512,
+            response_mime_type="application/json",
+            response_schema=_CLASSIFIER_SCHEMA,
+            safety_settings=_SAFETY_SETTINGS,
+        ),
+    )
+    return ArtworkMetadata.from_json(response.text or "{}")
+
+
+def _build_prompt(metadata: ArtworkMetadata) -> str:
+    """Assemble a composable prompt from individual section files."""
+    parts = [_load_prompt("base_rules")]
+
+    if metadata.has_people:
+        parts.append(_load_prompt("people_rules"))
+        if metadata.has_iconic_people:
+            parts.append(_load_prompt("iconic_people_rules"))
+            parts.append(_load_prompt("examples_iconic_people"))
+        else:
+            parts.append(_load_prompt("examples_people"))
+
+    if metadata.is_abstract:
+        parts.append(_load_prompt("abstract_section"))
+        if not metadata.has_people:
+            parts.append(_load_prompt("examples_abstract"))
+
+    if metadata.is_3d:
+        parts.append(_load_prompt("3d_section"))
+        if not metadata.has_people and not metadata.is_abstract:
+            parts.append(_load_prompt("examples_3d"))
+    else:
+        parts.append(_load_prompt("2d_section"))
+        if not metadata.has_people and not metadata.is_abstract:
+            parts.append(_load_prompt("examples_2d"))
+
+    if metadata.has_text:
+        parts.append(_load_prompt("text_section"))
+        parts.append(_load_prompt("examples_text"))
+
+    return "\n\n".join(parts)
+
+
 class AltTextGenerator:
 
     def __init__(
@@ -31,14 +170,15 @@ class AltTextGenerator:
         is_bulk=False,
         bulk_data_path=None,
         gemini_credentials_file="",
-        gemini_model="",
+        classifier_model="gemini-3-flash-preview",
+        captioner_model="gemini-3-flash-preview",
+        refinement_model="gemini-3-flash-preview",
         piction_base_url="https://piction.clevelandart.org/cma/",
         piction_update_endpoint="",
         piction_query_endpoint="!soap.jsonget?n=image_query&surl=1710855618ZZBQFTLPLCCT&search=AGE:",
         piction_days_since_query="1",
         max_retries=3,
         min_cosine=0.85,
-        prompt_file="",
         rag_directory="",
         output_file=None,
         with_rag=False,
@@ -54,7 +194,6 @@ class AltTextGenerator:
         self.PICTION_UPDATE_ENDPOINT = f"{piction_base_url}{piction_update_endpoint}"
         self.MAX_NUMBER_OF_RETRIES = max_retries
         self.MIN_COSINE_SIMILARITY = min_cosine
-        self.ALT_TEXT_PROMPT_FILE = prompt_file
         self.RAG_EXAMPLES = rag_directory
         self.WITH_RAG = with_rag
         self.STORE_METRICS = store_metrics
@@ -64,9 +203,13 @@ class AltTextGenerator:
             gemini_credentials_file,
             scopes=["https://www.googleapis.com/auth/cloud-platform"],
         )
-        self.GEMINI_MODEL = gemini_model
+        self.CLASSIFIER_MODEL  = classifier_model
+        self.CAPTIONER_MODEL   = captioner_model
+        self.REFINEMENT_MODEL  = refinement_model
         self.GEMINI_LOCATION = (
-            "global" if gemini_model == "gemini-3-pro-preview" else "us-central1"
+            "global"
+            if any(m.startswith("gemini-3") for m in [classifier_model, captioner_model, refinement_model])
+            else "us-central1"
         )
         self.gemini_client = genai.Client(
             vertexai=True,
@@ -98,10 +241,6 @@ class AltTextGenerator:
 
         # Set up logger
         self.logger = logging.getLogger(__name__)
-
-        # Load prompt from file
-        self.base_prompt = self._load_prompt()
-        self.output_format = "# Output format\nA single string of text using proper spelling, grammar, and punctuation."
 
         # Generator for RAG examples instead of loading all at once
         self.rag_directory = (
@@ -201,17 +340,6 @@ class AltTextGenerator:
         except Exception:
             pass
 
-    def _load_prompt(self):
-        """Load the alt text generation prompt from file"""
-        if self.ALT_TEXT_PROMPT_FILE and os.path.exists(self.ALT_TEXT_PROMPT_FILE):
-            with open(self.ALT_TEXT_PROMPT_FILE, "r") as f:
-                self.logger.info(f"Loaded prompt from {self.ALT_TEXT_PROMPT_FILE}")
-                return f.read()
-        self.logger.warning(
-            "No prompt file specified or file not found, using default prompt"
-        )
-        return "Generate a descriptive alt text for this image."
-
     def _iterate_rag_examples(self):
         """Generator to iterate through cached RAG examples"""
         for example in self.rag_cache:
@@ -304,14 +432,18 @@ class AltTextGenerator:
 
     # Get co-api artwork context
     def get_artwork_context(self, accession_number):
-        artwork_url = f"{self.CO_API_ENDPOINT}/{accession_number}?fields=technique,type"
+        artwork_url = f"{self.CO_API_ENDPOINT}/{accession_number}?fields=title,technique,type"
         try:
             response = requests.get(artwork_url).json()
             data = response.get("data")
+            title     = data.get("title")
             technique = data.get("technique")
-            type_val = data.get("type")
-            context = f"# Context\nTechnique: {technique}\nType: {type_val}"
-            return context
+            type_val  = data.get("type")
+            lines = ["# Context"]
+            if title:     lines.append(f"Title: {title}")
+            if technique: lines.append(f"Medium: {technique}")
+            if type_val:  lines.append(f"Type: {type_val}")
+            return "\n".join(lines)
         except Exception as e:
             self.logger.warning(f"Failed to get artwork context: {e}")
             return None
@@ -369,7 +501,7 @@ class AltTextGenerator:
 
         # Construct prompt with RAG examples
         rag_context = "\n\n".join(self.find_similar_rag_captions(image_caption))
-        prompt = f"The following alt-text correctly and accurately reflects the content of an image:\n{image_caption}\n\nChange the style and composition to more closely reflect that of the following examples:\n{rag_context}"
+        prompt = f"The following alt-text correctly and accurately reflects the content of an image:\n{image_caption}\n\nChange the style and composition to more closely reflect that of the following examples:\n{rag_context}\n\nYour output must be a maximum of 75 words. Count carefully before responding."
 
         generated_caption = image_caption  # Fallback value
         final_metrics = {}
@@ -378,28 +510,13 @@ class AltTextGenerator:
             self.logger.info(f"Attempt {attempt}/{self.MAX_NUMBER_OF_RETRIES}")
             try:
                 response = self.gemini_client.models.generate_content(
-                    model=self.GEMINI_MODEL,
-                    contents=[
-                        types.Part.from_uri(file_uri=image_src, mime_type="image/jpeg"),
-                        prompt,
-                    ],
+                    model=self.REFINEMENT_MODEL,
+                    contents=[types.Content(role="user", parts=[
+                        _make_image_part(image_src),
+                        types.Part.from_text(text=prompt),
+                    ])],
                     config=types.GenerateContentConfig(
-                        safety_settings=[
-                            types.SafetySetting(
-                                category="HARM_CATEGORY_HATE_SPEECH", threshold="OFF"
-                            ),
-                            types.SafetySetting(
-                                category="HARM_CATEGORY_DANGEROUS_CONTENT",
-                                threshold="OFF",
-                            ),
-                            types.SafetySetting(
-                                category="HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                                threshold="OFF",
-                            ),
-                            types.SafetySetting(
-                                category="HARM_CATEGORY_HARASSMENT", threshold="OFF"
-                            ),
-                        ]
+                        safety_settings=_SAFETY_SETTINGS,
                     ),
                 )
                 if not getattr(response, "text", None):
@@ -462,40 +579,35 @@ class AltTextGenerator:
 
     # Generate alt text
     def generate_alt_text(self, image_src, accession_number):
-        """Send image to gemini with prompt"""
+        """Classify → build prompt → generate caption → optionally refine with RAG"""
         self.logger.info("Generating alt text")
         for attempt in range(1, self.MAX_NUMBER_OF_RETRIES + 1):
             self.logger.info(f"Attempt {attempt}/{self.MAX_NUMBER_OF_RETRIES}")
             try:
+                # Step 1: classify the image
                 image_context = self.get_artwork_context(accession_number)
-                prompt = self.base_prompt
+                title = None
+                if image_context:
+                    for line in image_context.splitlines():
+                        if line.startswith("Title:"):
+                            title = line.removeprefix("Title:").strip()
+                            break
+                metadata = _classify_image(image_src, self.gemini_client, self.CLASSIFIER_MODEL, title=title)
+
+                # Step 2: build composable prompt, prepend context if available
+                prompt = _build_prompt(metadata)
                 if image_context is not None:
-                    prompt = f"{prompt}\n{image_context}\n{self.output_format}"
-                else:
-                    prompt = f"{prompt}\n{self.output_format}"
+                    prompt = f"{image_context}\n\n{prompt}"
+
+                # Step 3: generate initial caption
                 response = self.gemini_client.models.generate_content(
-                    model=self.GEMINI_MODEL,
-                    contents=[
-                        types.Part.from_uri(file_uri=image_src, mime_type="image/jpeg"),
-                        prompt,
-                    ],
+                    model=self.CAPTIONER_MODEL,
+                    contents=[types.Content(role="user", parts=[
+                        _make_image_part(image_src),
+                        types.Part.from_text(text=prompt),
+                    ])],
                     config=types.GenerateContentConfig(
-                        safety_settings=[
-                            types.SafetySetting(
-                                category="HARM_CATEGORY_HATE_SPEECH", threshold="OFF"
-                            ),
-                            types.SafetySetting(
-                                category="HARM_CATEGORY_DANGEROUS_CONTENT",
-                                threshold="OFF",
-                            ),
-                            types.SafetySetting(
-                                category="HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                                threshold="OFF",
-                            ),
-                            types.SafetySetting(
-                                category="HARM_CATEGORY_HARASSMENT", threshold="OFF"
-                            ),
-                        ]
+                        safety_settings=_SAFETY_SETTINGS,
                     ),
                 )
                 if not getattr(response, "text", None):
@@ -556,36 +668,32 @@ class AltTextGenerator:
         """Generate alt text using RAG regardless of initial threshold"""
         self.logger.info("Generating alt text with forced RAG method")
 
-        # First generate baseline caption
+        # First generate baseline caption using the 3-step pipeline
         try:
+            # Step 1: classify the image
             image_context = self.get_artwork_context(accession_number)
-            prompt = self.base_prompt
-            if image_context is not None:
-                prompt = f"{prompt}\n{image_context}\n{self.output_format}"
-            else:
-                prompt = f"{prompt}\n{self.output_format}"
+            title = None
+            if image_context:
+                for line in image_context.splitlines():
+                    if line.startswith("Title:"):
+                        title = line.removeprefix("Title:").strip()
+                        break
+            metadata = _classify_image(image_src, self.gemini_client, self.CLASSIFIER_MODEL, title=title)
 
+            # Step 2: build composable prompt, prepend context if available
+            prompt = _build_prompt(metadata)
+            if image_context is not None:
+                prompt = f"{image_context}\n\n{prompt}"
+
+            # Step 3: generate initial caption
             response = self.gemini_client.models.generate_content(
-                model=self.GEMINI_MODEL,
-                contents=[
-                    types.Part.from_uri(file_uri=image_src, mime_type="image/jpeg"),
-                    prompt,
-                ],
+                model=self.CAPTIONER_MODEL,
+                contents=[types.Content(role="user", parts=[
+                    _make_image_part(image_src),
+                    types.Part.from_text(text=prompt),
+                ])],
                 config=types.GenerateContentConfig(
-                    safety_settings=[
-                        types.SafetySetting(
-                            category="HARM_CATEGORY_HATE_SPEECH", threshold="OFF"
-                        ),
-                        types.SafetySetting(
-                            category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="OFF"
-                        ),
-                        types.SafetySetting(
-                            category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="OFF"
-                        ),
-                        types.SafetySetting(
-                            category="HARM_CATEGORY_HARASSMENT", threshold="OFF"
-                        ),
-                    ]
+                    safety_settings=_SAFETY_SETTINGS,
                 ),
             )
 
@@ -916,7 +1024,22 @@ Examples:
         help="Gemini API JSON credentials",
     )
     parser.add_argument(
-        "--gemini-model", type=str, required=True, help="Gemini model to use"
+        "--classifier-model",
+        type=str,
+        default="gemini-3-flash-preview",
+        help="Model used for image classification (default: gemini-3-flash-preview)",
+    )
+    parser.add_argument(
+        "--captioner-model",
+        type=str,
+        default="gemini-3-flash-preview",
+        help="Model used for initial caption generation (default: gemini-3-flash-preview)",
+    )
+    parser.add_argument(
+        "--refinement-model",
+        type=str,
+        default="gemini-3-flash-preview",
+        help="Model used for RAG refinement pass (default: gemini-3-flash-preview)",
     )
     parser.add_argument(
         "--piction-update", type=str, default="", help="Piction update endpoint"
@@ -950,9 +1073,6 @@ Examples:
         type=float,
         default=0.25,
         help="Minimum cosine similarity threshold (default: 0.25)",
-    )
-    parser.add_argument(
-        "--prompt-file", type=str, default="", help="Path to prompt template file"
     )
     parser.add_argument(
         "--rag-directory",
@@ -1031,12 +1151,13 @@ Examples:
         is_bulk=args.bulk,
         bulk_data_path=args.bulk_data_path,
         gemini_credentials_file=args.gemini_credentials_file,
-        gemini_model=args.gemini_model,
+        classifier_model=args.classifier_model,
+        captioner_model=args.captioner_model,
+        refinement_model=args.refinement_model,
         piction_update_endpoint=args.piction_update,
         piction_query_endpoint=args.piction_query,
         max_retries=args.max_retries,
         min_cosine=args.min_cosine,
-        prompt_file=args.prompt_file,
         rag_directory=args.rag_directory,
         output_file=args.output_file,
         with_rag=args.with_rag,
