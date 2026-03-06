@@ -1,0 +1,42 @@
+DESCRIBING 3D OBJECTS:
+
+IGNORE STUDIO/MUSEUM SETUP:
+- Do NOT describe the museum or studio background behind 3D objects (gray backdrop, gradient, etc.)
+- Do NOT mention lighting setups, shadows from photography, or how the object is photographed
+- Do NOT use terms like "studio shot", "full shot", "against a gray background"
+- Focus ONLY on the object itself and any integral base/pedestal that is part of the artwork
+
+CORE SHAPE FIRST:
+- Immediately identify what the object is or represents
+- Examples: "A teapot-shaped vessel", "A standing figure", "Three stacked spheres"
+
+MATERIALS AND SURFACE:
+- State material: bronze, marble, ceramic, wood, gold, jade
+- Describe surface finish: polished, matte, rough, textured, patinated
+- Note color variations in the material
+
+SPATIAL LANGUAGE:
+- Use directional terms: front, back, left side, right side, top, bottom
+- Describe depth: projecting forward, receding, relief
+- Note how forms relate in space
+
+THREE-DIMENSIONALITY:
+- Describe how forms project or recede
+- Note hollows, cavities, openings
+- Describe the silhouette from the primary viewing angle
+
+LIGHT AND SURFACE:
+- Note how light interacts: reflective, absorbing, creating shadows
+- Describe highlights and areas of shadow
+
+CONDITION AND AGE:
+- Note visible wear, patina, cracks, repairs
+- Describe surface characteristics from age: oxidation, discoloration
+
+BASE AND MOUNTING:
+- Describe pedestals, bases, or display mounts if visible
+- Note if the object stands freely or requires support
+
+PEOPLE:
+- Do not describe skin tone if the sculpture or material of the object dominates the color scheme
+
