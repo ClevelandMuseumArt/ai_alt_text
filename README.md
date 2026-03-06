@@ -8,7 +8,9 @@ Each image goes through a three-step pipeline:
 
 1. **Classify** — Gemini analyzes the image and returns structured metadata: whether it contains people, is abstract, is 3D, contains text, and whether any people are iconic/recognizable figures.
 2. **Caption** — A composable prompt is assembled from modular section files in `prompts/` based on the classification, then passed to Gemini with the image to generate an initial alt text.
-3. **Validate** — CLIP embeddings compare the generated caption against the image using cosine similarity. If the score meets the threshold, the result is accepted. If not, the pipeline optionally retries using RAG-retrieved examples to refine the caption.
+3. **Validate** — CLIP embeddings compare the generated caption against the image using cosine similarity. If the score meets the threshold, the result is accepted.
+
+If the initial caption fails validation, the script can run a refinement pass using examples from `rag_examples/`. Those examples are retrieved by similarity to the generated caption text, then sent to Gemini to rewrite the caption in a style closer to the reference examples while keeping it grounded in the image.
 
 Output rows are tagged with `ALT_TEXT_MEETS_THRESHOLD`:
 - `YES` — passed CLIP cosine threshold
@@ -76,7 +78,7 @@ Main generation script. Runs in two modes:
 
 **Bulk mode** — reads a CSV (from `artwork_bulk_load.py`), generates alt text for all rows in parallel, writes results to CSV.
 
-**Piction query mode** (default) — queries the Piction API for recently uploaded images, generates alt text, and posts results back to Piction.
+**Piction query mode** (default) — queries the Piction API for recently uploaded images, generates alt text, and posts non-RAG results back to Piction.
 
 ```shell
 # Bulk mode with RAG, storing metrics
@@ -106,8 +108,8 @@ python -m generate_alt_text \
 | `--classifier-model` | `gemini-3-flash-preview` | Model for image classification |
 | `--captioner-model` | `gemini-3-flash-preview` | Model for initial caption generation |
 | `--refinement-model` | `gemini-3-flash-preview` | Model for RAG refinement pass |
-| `--rag-directory` | — | Directory of RAG example `.txt` files |
-| `--with-rag` | false | Always run RAG refinement pass and write a second output CSV |
+| `--rag-directory` | — | Directory of RAG example `.txt` files used during refinement |
+| `--with-rag` | false | Also run a forced RAG refinement pass. In bulk mode this writes a second `_rag_` CSV; in Piction mode it generates RAG-only JSON outputs instead of posting standard results. |
 | `--store-metrics` | false | Include `cosine_similarity` column in output |
 | `--min-cosine` | `0.25` | CLIP cosine similarity threshold |
 | `--max-retries` | `5` | Retry attempts per image |
@@ -122,7 +124,7 @@ python -m generate_alt_text \
 
 **Output CSV columns:** `image_id, caption, ALT_TEXT_MEETS_THRESHOLD, attempts[, cosine_similarity]`
 
-When `--with-rag` is set, two CSVs are written: the standard output and a `_rag_` prefixed file with RAG-refined captions.
+In bulk mode, when `--with-rag` is set, two CSVs are written: the standard output and a `_rag_` prefixed file with RAG-refined captions.
 
 ---
 
