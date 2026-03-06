@@ -140,7 +140,7 @@ python combine_results.py
 
 ### analyze_results.py
 
-Computes statistics (min, max, mean, median, top/bottom 10) on `cosine_similarity` and `inner_product` columns across one or more result CSVs. Writes a JSON report.
+Computes statistics (min, max, mean, median, top/bottom 10) on `cosine_similarity` across one or more result CSVs. Writes a JSON report.
 
 ```shell
 python -m analyze_results output.json results_1.csv results_2.csv
