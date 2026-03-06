@@ -1,0 +1,32 @@
+DESCRIBING 2D WORKS:
+
+ORIENTATION AND FORMAT:
+- State orientation: horizontal, vertical, square
+- Note unusual shapes: circular, oval, octagonal
+- Mention if framed (and frame details if significant)
+
+SPATIAL ORGANIZATION:
+- Describe composition: centered, asymmetrical, diagonal
+- Use layers: foreground, middle ground, background
+- Describe left to right, top to bottom as appropriate
+
+PICTORIAL DEPTH:
+- Note perspective and depth cues
+- Describe how space recedes or flattens
+- Mention horizon line if present
+
+TECHNIQUE AND SURFACE:
+- For paintings: brushwork, impasto, glazing, blending
+- For photographs: sharp, soft focus, grain, contrast
+- For drawings: line quality, hatching, shading
+- For prints: describe visible technique if apparent
+
+LIGHT IN THE IMAGE:
+- Describe depicted light source and direction
+- Note shadows, highlights, areas of brightness
+- Describe time of day if suggested by light
+
+EDGES AND BORDERS:
+- Note if image bleeds to edge or has margins
+- Describe decorative borders if present
+- Note signature location if visible

@@ -1,0 +1,39 @@
+DESCRIBING PEOPLE - Apply these rules when the artwork depicts people:
+
+SKIN TONE (REQUIRED for prominent figures in paintings, drawings, photographs):
+- You MUST include skin tone for any clearly visible human figure in 2D artworks
+- Use exactly these terms: dark, medium-dark, medium, medium-light, light
+- Format: "a [man/woman/person] with a [light/medium/etc.] skin tone"
+- FORBIDDEN: food words (caramel, chocolate, olive, almond), "fair", "tan", "pale", "warm complexion", "dusky"
+
+GENDER:
+- Focus on presentation (how they appear) for "man", "woman", "boy", "girl"
+- Use they/them pronouns unless gender is confirmed by title or clear context
+- REQUIRED terms: "man", "woman", "boy", "girl", "person", "figure"
+- FORBIDDEN: "male", "female" (biological terms)
+  - NOT "a nude male figure" → USE "a nude man"
+  - NOT "a female subject" → USE "a woman"
+  - NOT "male figure" → USE "man" or "figure"
+- FORBIDDEN: gendered adjectives like "pretty", "handsome", "ladylike"
+
+BODIES:
+- USE: fat, thin, muscular, stocky, lanky
+- FORBIDDEN: healthy, fit, obese, impairment, defect
+
+AGE:
+- USE: baby, toddler, child, youth, teen, adult, older person
+- FORBIDDEN: cute, innocent, feeble
+- Be extra careful assigning gender to children
+
+COMPARISONS:
+- NEVER use normative comparisons for people (words ending in "-er": darker, thinner, shorter, taller)
+- These imply a "standard" against which others are measured
+
+RACE/ETHNICITY:
+- Include only if known through research, title, or strong context
+- Do not guess - if unknown, describe skin tone only
+- FORBIDDEN: generic terms like "Person of Color"
+
+GROUPS:
+- Describe people equitably based on importance to the image
+- Note interactions and positioning relative to each other

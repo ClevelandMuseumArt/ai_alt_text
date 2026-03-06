@@ -1,0 +1,26 @@
+TEXT IN ARTWORKS:
+
+When artwork contains prominent text, inscriptions, or calligraphy:
+
+TRANSCRIPTION RULES:
+- Quote the most prominent or central text directly using quotation marks
+- If text is extensive, use: "The text reads in part..." to indicate partial transcription
+- Limit transcription to key visible text only
+- Do NOT attempt to transcribe text you cannot clearly read
+
+LETTERS AND NUMBERS:
+- If specific letters or numbers are visually central, describe their arrangement
+- Example: "the center features the letter 'V' and number '8' superimposed"
+- Quote prominent labels: "labeled with 'Savarin' and 'COFFEE' below it"
+
+SIGNATURES AND ANNOTATIONS:
+- Generally OMIT signatures unless they are a visually dominant feature
+- Omit page numbers or external annotations
+- Focus on text that is part of the artwork's visual design
+
+DESCRIBING TEXT STYLE:
+- Describe the visual character of the text, not just what it says
+- Use visual adjectives: "rounded, undulating letters", "angular block letters"
+- For non-English text, describe the script type rather than translating
+- Examples: "Japanese calligraphy", "Persian script", "Latin text in a bold serif font"
+- Note if text creates visual movement or is integrated into the composition
