@@ -459,14 +459,14 @@ class AltTextGenerator:
 
         try:
             cap_emb = self._normalize_embedding(
-                self.generate_text_embeddings(generated_caption)
+                self.generate_text_embeddings(generated_caption, self.device)
             )
             # Use a min-heap to keep only top 3, avoiding storing all similarities
             from heapq import nlargest
 
             sims = []
             for idx, ex in enumerate(self._iterate_rag_examples()):
-                ex_emb = self._normalize_embedding(self.generate_text_embeddings(ex))
+                ex_emb = self._normalize_embedding(self.generate_text_embeddings(ex, self.device))
                 score = cosine_similarity(
                     cap_emb.reshape(1, -1), ex_emb.reshape(1, -1)
                 )[0][0]
