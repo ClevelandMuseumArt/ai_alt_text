@@ -958,7 +958,7 @@ class AltTextGenerator:
                 try:
                     self.logger.info(f"Looking for piction uploads from last {self.PICTION_QUERY_DAYS_SINCE} days")
                     unprocessed_updates = self._query_piction_updated_images()
-                    if len(unprocessed_updates) is 0:
+                    if len(unprocessed_updates) == 0:
                         self.logger.info(f"No recent piction uploads in {self.PICTION_QUERY_DAYS_SINCE} days")
                         return
                     processed_updates = self._process_piction_updated_images(unprocessed_updates)
