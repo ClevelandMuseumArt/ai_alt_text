@@ -81,7 +81,11 @@ class ArtworkMetadata:
                 has_iconic_people=data.get("has_iconic_people", False),
                 raw_response=json_str,
             )
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            logging.warning(
+                f"Failed to parse classifier response (defaulting to 2D artwork): {e}. "
+                f"Raw response: {json_str[:200]}"
+            )
             return cls(False, False, False, False, "none", raw_response=json_str)
 
 
@@ -455,14 +459,14 @@ class AltTextGenerator:
 
         try:
             cap_emb = self._normalize_embedding(
-                self.generate_text_embeddings(generated_caption)
+                self.generate_text_embeddings(generated_caption, self.device)
             )
             # Use a min-heap to keep only top 3, avoiding storing all similarities
             from heapq import nlargest
 
             sims = []
             for idx, ex in enumerate(self._iterate_rag_examples()):
-                ex_emb = self._normalize_embedding(self.generate_text_embeddings(ex))
+                ex_emb = self._normalize_embedding(self.generate_text_embeddings(ex, self.device))
                 score = cosine_similarity(
                     cap_emb.reshape(1, -1), ex_emb.reshape(1, -1)
                 )[0][0]
@@ -875,7 +879,7 @@ class AltTextGenerator:
 
     def _process_piction_updated_images(self, results):
         processed_results = []
-        for item in enumerate(results):
+        for item in results:
             try:
                 image_id = item.get('id')
                 web_image_data = item.get('wq')
@@ -954,7 +958,7 @@ class AltTextGenerator:
                 try:
                     self.logger.info(f"Looking for piction uploads from last {self.PICTION_QUERY_DAYS_SINCE} days")
                     unprocessed_updates = self._query_piction_updated_images()
-                    if len(unprocessed_updates) is 0:
+                    if len(unprocessed_updates) == 0:
                         self.logger.info(f"No recent piction uploads in {self.PICTION_QUERY_DAYS_SINCE} days")
                         return
                     processed_updates = self._process_piction_updated_images(unprocessed_updates)

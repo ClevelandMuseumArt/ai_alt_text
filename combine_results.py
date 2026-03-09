@@ -36,6 +36,7 @@ def combine_csv_files(
     seen_keys = set()
     all_rows = []
     headers = None
+    total_rows = 0
 
     for file_path in csv_files:
         print(f"Processing: {file_path}")
@@ -49,6 +50,7 @@ def combine_csv_files(
                 print(f"Headers: {headers}")
 
             for row in reader:
+                total_rows += 1
                 # Create a normalized key for duplicate detection
                 key_parts = []
                 for col in duplicate_columns:
@@ -77,7 +79,7 @@ def combine_csv_files(
         writer.writeheader()
         writer.writerows(all_rows)
 
-    print(f"Done! Removed {len(seen_keys) - len(all_rows) + len(seen_keys)} duplicates")
+    print(f"Done! Removed {total_rows - len(all_rows)} duplicates")
 
 
 # Example usage:
