@@ -573,7 +573,7 @@ class AltTextGenerator:
             f"Failed to generate acceptable alt text after {self.MAX_NUMBER_OF_RETRIES} attempts"
         )
         result = {
-            "caption": "",
+            "caption": generated_caption,
             "ALT_TEXT_MEETS_THRESHOLD": "NO",
             "attempts": self.MAX_NUMBER_OF_RETRIES,
         }
