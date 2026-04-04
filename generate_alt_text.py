@@ -322,7 +322,7 @@ class AltTextGenerator:
         self.rag_cache = []
         if self.rag_directory:
             for file in Path(self.rag_directory).glob("*.txt"):
-                with open(file, "r") as f:
+                with open(file, "r", encoding="utf-8") as f:
                     self.rag_cache.append(f.read())
             self.logger.info(f"Cached {len(self.rag_cache)} RAG examples")
 
