@@ -3,17 +3,23 @@ import csv
 import sys
 import math
 import time
+import yaml
 import argparse
 import requests
 import logging
 from datetime import datetime
 from cma_piction import PictionSession
 
+def _load_config(config_path="credentials.yml"):
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
 
 class LoadCollectionData:
-    def __init__(self, testing=False) -> None:
+    def __init__(self, testing=False, config_path="credentials.yml") -> None:
         self.TESTING = testing
-        self.CO_API = "REDACTED"
+        cfg = _load_config(config_path)
+
+        self.CO_API = cfg["collection_api"]["base_url"]
         self.LIMIT = 1000
         self.SKIP = 0
         self.TOTAL_ART = math.inf
@@ -33,9 +39,9 @@ class LoadCollectionData:
         self.ERROR_LOG_PATH = os.path.join(self.DATA_PATH, f"{self.TODAY_TS}_errors.log")
 
         self.piction = PictionSession({
-            'username': 'REDACTED',
-            'password': 'REDACTED',
-            'root_url': 'REDACTED'
+            "username": cfg["piction"]["username"],
+            "password": cfg["piction"]["password"],
+            "root_url": cfg["piction"]["root_url"],
         })
 
         # Set up logger
@@ -95,7 +101,6 @@ class LoadCollectionData:
             self.logger.error(f"Failed to get metadata ID for {acc_nbr}: {e}")
             return None
 
-
     def get_piction_umo_id(self, img_data, acc_nbr):
         """Retrieve UMO ID from CO-API or Piction system."""
         try:
@@ -133,7 +138,6 @@ class LoadCollectionData:
             if not athena_id:
                 self.logger.warning("Artwork missing athena_id, skipping")
                 return
-
 
             img_url = self.get_img_url(artwork_data)
 
@@ -302,6 +306,12 @@ def main():
         default=None,
         help='Comma-separated list of Athena IDs or accession numbers to download'
     )
+    parser.add_argument(
+        '--config',
+        type=str,
+        default='credentials.yml',
+        help='Path to credentials YAML file (default: credentials.yml)'
+    )
     args = parser.parse_args()
 
     # Set up logging
@@ -328,7 +338,7 @@ def main():
 
     # Initialize data loader
     test_mode = args.test == 1
-    training_data = LoadCollectionData(testing=test_mode)
+    training_data = LoadCollectionData(testing=test_mode, config_path=args.config)
 
     # Set up data directory
     setup_status = training_data.set_up()

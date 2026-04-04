@@ -23,7 +23,11 @@ Output rows are tagged with `ALT_TEXT_MEETS_THRESHOLD`:
 pip install -r requirements.txt
 ```
 
-Requires a Google Cloud service account JSON key file with Vertex AI access (`project: REDACTED`).
+Copy `credentials.yml.example` to `credentials.yml` and fill in all values. This file is gitignored and must never be committed. It contains:
+
+- Piction username, password, and endpoint URLs
+- Google Cloud project ID and service account credentials
+- Collection API base URL
 
 Requires `cma_piction` (internal CMA package, installed via git in `requirements.txt`).
 
@@ -61,12 +65,16 @@ python -m artwork_bulk_load --art-ids 12345,67890
 
 # With logging
 python -m artwork_bulk_load --log-level DEBUG --log-file logs/bulk_load
+
+# Non-default credentials file
+python -m artwork_bulk_load --config /path/to/credentials.yml
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--test` | `0` | `1` = test mode (500 random artworks) |
 | `--art-ids` | — | Comma-separated Athena IDs for targeted download |
+| `--config` | `credentials.yml` | Path to credentials YAML file |
 | `--log-level` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `--log-file` | — | Log file path prefix (timestamp appended) |
 
@@ -85,7 +93,6 @@ Main generation script. Runs in two modes:
 python -m generate_alt_text \
   --bulk \
   --bulk-data-path image_data/my_data.csv \
-  --gemini-credentials-file gemini-key.json \
   --classifier-model gemini-3-pro-preview \
   --captioner-model gemini-3-flash-preview \
   --refinement-model gemini-3-flash-preview \
@@ -96,15 +103,17 @@ python -m generate_alt_text \
 
 # Piction query mode (daily CRON use)
 python -m generate_alt_text \
-  --gemini-credentials-file gemini-key.json \
   --piction-days-since-query 1
+
+# Non-default credentials file
+python -m generate_alt_text --config /path/to/credentials.yml
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--bulk` | false | Enable bulk CSV processing mode |
 | `--bulk-data-path` | — | Path to input CSV (required with `--bulk`) |
-| `--gemini-credentials-file` | — | **Required.** Path to Google service account JSON |
+| `--config` | `credentials.yml` | Path to credentials YAML file |
 | `--classifier-model` | `gemini-3-flash-preview` | Model for image classification |
 | `--captioner-model` | `gemini-3-flash-preview` | Model for initial caption generation |
 | `--refinement-model` | `gemini-3-flash-preview` | Model for RAG refinement pass |
@@ -115,9 +124,6 @@ python -m generate_alt_text \
 | `--max-retries` | `5` | Retry attempts per image |
 | `--max-workers` | `8` | Parallel worker threads (bulk mode) |
 | `--output-file` | auto | Output CSV path (default: timestamped) |
-| `--piction-base-url` | `REDACTED/cma/` | Piction base URL |
-| `--piction-query` | *(internal endpoint)* | Piction query endpoint path |
-| `--piction-update` | — | Piction update endpoint path |
 | `--piction-days-since-query` | `1` | Days back to query Piction for uploads |
 | `--log-level` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `--log-file` | — | Log file path prefix (timestamp appended) |
@@ -149,6 +155,9 @@ python -m analyze_results output.json results_1.csv results_2.csv
 ## Directory structure
 
 ```
+credentials.yml       Credentials and environment config (gitignored — never commit)
+credentials.yml.example  Template with all required keys, safe to commit
+
 prompts/              Modular prompt files assembled per image type
   base_rules.txt      Core alt text rules, always included
   classifier.txt      Classification prompt

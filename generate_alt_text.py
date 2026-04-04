@@ -3,6 +3,7 @@ import json
 import csv
 import os
 import re
+import yaml
 import requests
 from dataclasses import dataclass
 from sklearn.metrics.pairwise import cosine_similarity
@@ -29,6 +30,11 @@ from queue import Queue
 
 # Prompt helpers
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+
+def _load_config(config_path="credentials.yml"):
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
 
 
 def _extract_json(text: str) -> str:
@@ -173,13 +179,10 @@ class AltTextGenerator:
         self,
         is_bulk=False,
         bulk_data_path=None,
-        gemini_credentials_file="",
+        config_path="credentials.yml",
         classifier_model="gemini-3-flash-preview",
         captioner_model="gemini-3-flash-preview",
         refinement_model="gemini-3-flash-preview",
-        piction_base_url="REDACTED/cma/",
-        piction_update_endpoint="",
-        piction_query_endpoint="REDACTED",
         piction_days_since_query="1",
         max_retries=3,
         min_cosine=0.85,
@@ -189,22 +192,27 @@ class AltTextGenerator:
         store_metrics=False,
         max_workers=8,
     ):
+        cfg = _load_config(config_path)
+
         # Update appropriate variables
         self.BULK_UPDATE = is_bulk
         self.BULK_DATA_PATH = bulk_data_path
-        self.PICTION_BASE_URL = piction_base_url
+        self.PICTION_BASE_URL = cfg["piction"]["base_url"]
         self.PICTION_QUERY_DAYS_SINCE = piction_days_since_query
-        self.PICTION_QUERY_ENDPOINT = f"{piction_base_url}{piction_query_endpoint}{piction_days_since_query}"
-        self.PICTION_UPDATE_ENDPOINT = f"{piction_base_url}{piction_update_endpoint}"
+        self.PICTION_QUERY_ENDPOINT = (
+            f"{self.PICTION_BASE_URL}{cfg['piction']['query_endpoint']}{piction_days_since_query}"
+        )
+        self.PICTION_UPDATE_ENDPOINT = (
+            f"{self.PICTION_BASE_URL}{cfg['piction']['update_endpoint']}"
+        )
         self.MAX_NUMBER_OF_RETRIES = max_retries
         self.MIN_COSINE_SIMILARITY = min_cosine
         self.RAG_EXAMPLES = rag_directory
         self.WITH_RAG = with_rag
         self.STORE_METRICS = store_metrics
         self.MAX_WORKERS = max_workers
-
-        self.gemini_credentials = service_account.Credentials.from_service_account_file(
-            gemini_credentials_file,
+        self.gemini_credentials = service_account.Credentials.from_service_account_info(
+            cfg["gemini"]["service_account"],
             scopes=["https://www.googleapis.com/auth/cloud-platform"],
         )
         self.CLASSIFIER_MODEL  = classifier_model
@@ -217,13 +225,11 @@ class AltTextGenerator:
         )
         self.gemini_client = genai.Client(
             vertexai=True,
-            project="REDACTED",
+            project=cfg["gemini"]["project"],
             location=self.GEMINI_LOCATION,
             credentials=self.gemini_credentials,
         )
-        self.CO_API_ENDPOINT = (
-            "REDACTED"
-        )
+        self.CO_API_ENDPOINT = cfg["collection_api"]["base_url"]
 
         # Output file for incremental saves
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1005,10 +1011,13 @@ def main():
         epilog="""
 Examples:
   # Process bulk data from CSV
-  python generate_alt_text_with_agents.py --bulk --bulk-data-path data.csv --gemini-endpoint http://api.gemini.com/generate
+  python generate_alt_text_with_agents.py --bulk --bulk-data-path data.csv
 
-  # Process from Piction API
-  python generate_alt_text_with_agents.py --piction-query http://api.piction.com/query --piction-update http://api.piction.com/update
+  # Process from Piction API (endpoints read from credentials.yml)
+  python generate_alt_text_with_agents.py
+
+  # Use a non-default credentials file
+  python generate_alt_text_with_agents.py --config /path/to/credentials.yml
         """,
     )
 
@@ -1022,10 +1031,10 @@ Examples:
         help="Path to bulk data file (CSV or JSON)",
     )
     parser.add_argument(
-        "--gemini-credentials-file",
+        "--config",
         type=str,
-        required=True,
-        help="Gemini API JSON credentials",
+        default="credentials.yml",
+        help="Path to credentials YAML file (default: credentials.yml)",
     )
     parser.add_argument(
         "--classifier-model",
@@ -1044,21 +1053,6 @@ Examples:
         type=str,
         default="gemini-3-flash-preview",
         help="Model used for RAG refinement pass (default: gemini-3-flash-preview)",
-    )
-    parser.add_argument(
-        "--piction-update", type=str, default="", help="Piction update endpoint"
-    )
-    parser.add_argument(
-        "--piction-base-url",
-        type=str,
-        default="REDACTED/cma/",
-        help="Base URL for piction queries, update, and image endpoints"
-    )
-    parser.add_argument(
-        "--piction-query",
-        type=str,
-        default="REDACTED",
-        help="Piction query endpoint",
     )
     parser.add_argument(
         "--piction-days-since-query",
@@ -1143,9 +1137,6 @@ Examples:
     if args.bulk and not args.bulk_data_path:
         parser.error("--bulk-data-path is required when --bulk is enabled")
 
-    if not args.bulk and not args.piction_query:
-        parser.error("--piction-query is required when not in bulk mode")
-
     if args.with_rag and not args.rag_directory:
         parser.error("--rag-directory is required when --with-rag is enabled")
 
@@ -1154,12 +1145,11 @@ Examples:
     generator = AltTextGenerator(
         is_bulk=args.bulk,
         bulk_data_path=args.bulk_data_path,
-        gemini_credentials_file=args.gemini_credentials_file,
+        config_path=args.config,
         classifier_model=args.classifier_model,
         captioner_model=args.captioner_model,
         refinement_model=args.refinement_model,
-        piction_update_endpoint=args.piction_update,
-        piction_query_endpoint=args.piction_query,
+        piction_days_since_query=args.piction_days_since_query,
         max_retries=args.max_retries,
         min_cosine=args.min_cosine,
         rag_directory=args.rag_directory,

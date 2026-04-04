@@ -2,6 +2,7 @@ venv
 /logs/*
 /image_data/*
 *.csv
+*.yml
+!credentials.yml.example
 __pycache__
-gemini-key.json
 *_results.json
