@@ -86,7 +86,7 @@ Main generation script. Runs in two modes:
 
 **Bulk mode** — reads a CSV (from `artwork_bulk_load.py`), generates alt text for all rows in parallel, writes results to CSV.
 
-**Piction query mode** (default) — queries the Piction API for recently uploaded images, generates alt text, and posts non-RAG results back to Piction.
+**Piction query mode** (default) — queries the Piction API for recently uploaded images, generates alt text, appends all results to a single JSON file, and posts results back to Piction. Without `--with-rag`, standard results are posted. With `--with-rag`, both standard and RAG results are generated and saved, but only the RAG results are posted to the DAM.
 
 ```shell
 # Bulk mode with RAG, storing metrics
@@ -105,6 +105,12 @@ python -m generate_alt_text \
 python -m generate_alt_text \
   --piction-days-since-query 1
 
+# Piction query mode with RAG results posted to DAM
+python -m generate_alt_text \
+  --piction-days-since-query 1 \
+  --rag-directory rag_examples \
+  --with-rag
+
 # Non-default credentials file
 python -m generate_alt_text --config /path/to/credentials.yml
 ```
@@ -118,19 +124,21 @@ python -m generate_alt_text --config /path/to/credentials.yml
 | `--captioner-model` | `gemini-3-flash-preview` | Model for initial caption generation |
 | `--refinement-model` | `gemini-3-flash-preview` | Model for RAG refinement pass |
 | `--rag-directory` | — | Directory of RAG example `.txt` files used during refinement |
-| `--with-rag` | false | Also run a forced RAG refinement pass. In bulk mode this writes a second `_rag_` CSV; in Piction mode it generates RAG-only JSON outputs instead of posting standard results. |
-| `--store-metrics` | false | Include `cosine_similarity` column in output |
+| `--with-rag` | false | Also run a forced RAG refinement pass and write results to a second output file alongside the standard one. In Piction query mode, the RAG results are posted to the DAM instead of the standard results. |
+| `--store-metrics` | false | Include `cosine_similarity` column/field in output |
 | `--min-cosine` | `0.25` | CLIP cosine similarity threshold |
 | `--max-retries` | `5` | Retry attempts per image |
 | `--max-workers` | `8` | Parallel worker threads (bulk mode) |
-| `--output-file` | auto | Output CSV path (default: timestamped) |
+| `--output-file` | auto | Output file path or directory. If a directory path is provided, a timestamped file is created there. If omitted, a timestamped file is created in the working directory. Bulk mode outputs `.csv`; Piction query mode outputs `.json`. |
 | `--piction-days-since-query` | `1` | Days back to query Piction for uploads |
 | `--log-level` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `--log-file` | — | Log file path prefix (timestamp appended) |
 
-**Output CSV columns:** `image_id, caption, ALT_TEXT_MEETS_THRESHOLD, attempts[, cosine_similarity]`
+**Bulk mode output** — a single CSV with columns: `image_id, caption, ALT_TEXT_MEETS_THRESHOLD, attempts[, cosine_similarity]`
 
-In bulk mode, when `--with-rag` is set, two CSVs are written: the standard output and a `_rag_` prefixed file with RAG-refined captions.
+**Piction query mode output** — a single newline-delimited JSON file where each line is one result record with the same fields as above.
+
+When `--with-rag` is set, a second output file is written alongside the standard one with `_rag_` in the filename, containing the RAG-refined captions.
 
 ---
 

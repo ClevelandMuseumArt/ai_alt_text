@@ -231,12 +231,24 @@ class AltTextGenerator:
         )
         self.CO_API_ENDPOINT = cfg["collection_api"]["base_url"]
 
-        # Output file for incremental saves
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.output_file = output_file or f"alt_text_results_{timestamp}.csv"
-        self.rag_output_file = (
-            f"alt_text_results_rag_{timestamp}.csv" if with_rag else None
-        )
+        default_ext = ".csv" if is_bulk else ".json"
+        default_filename = f"alt_text_results_{timestamp}{default_ext}"
+        default_rag_filename = f"alt_text_results_rag_{timestamp}{default_ext}"
+
+        if output_file:
+            p = Path(output_file)
+            if p.suffix:
+                self.output_file = str(p)
+                self.rag_output_file = (
+                    str(p.parent / default_rag_filename) if with_rag else None
+                )
+            else:
+                self.output_file = str(p / default_filename)
+                self.rag_output_file = str(p / default_rag_filename) if with_rag else None
+        else:
+            self.output_file = default_filename
+            self.rag_output_file = default_rag_filename if with_rag else None
 
         self.csv_queue = Queue()
         self.stop_writer = threading.Event()
@@ -744,6 +756,7 @@ class AltTextGenerator:
     def _initialize_csv(self):
         """Initialize CSV file with headers"""
         if not self.csv_initialized:
+            Path(self.output_file).parent.mkdir(parents=True, exist_ok=True)
             with open(self.output_file, "w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=self._get_csv_fieldnames())
                 writer.writeheader()
@@ -753,11 +766,20 @@ class AltTextGenerator:
     def _initialize_rag_csv(self):
         """Initialize RAG CSV file with headers"""
         if not self.rag_csv_initialized and self.WITH_RAG:
+            Path(self.rag_output_file).parent.mkdir(parents=True, exist_ok=True)
             with open(self.rag_output_file, "w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=self._get_csv_fieldnames())
                 writer.writeheader()
             self.rag_csv_initialized = True
             self.logger.info(f"Initialized RAG output file: {self.rag_output_file}")
+
+    def _initialize_json(self, is_rag=False):
+        """Initialize JSON output file"""
+        output_file = self.rag_output_file if is_rag else self.output_file
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+        if not Path(output_file).exists():
+            Path(output_file).touch()
+        self.logger.info(f"Initialized output file: {output_file}")
 
     def _append_to_csv(self, result, is_rag=False):
         """Append a single result to CSV file immediately"""
@@ -765,6 +787,15 @@ class AltTextGenerator:
         with open(output_file, "a", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=self._get_csv_fieldnames())
             writer.writerow(result)
+        self.logger.debug(
+            f"Saved result for image {result.get('image_id')} to {output_file}"
+        )
+
+    def _append_to_json(self, result, is_rag=False):
+        """Append a single result to JSON file as a newline-delimited record"""
+        output_file = self.rag_output_file if is_rag else self.output_file
+        with open(output_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(result) + "\n")
         self.logger.debug(
             f"Saved result for image {result.get('image_id')} to {output_file}"
         )
@@ -798,19 +829,14 @@ class AltTextGenerator:
         """Save individual result immediately"""
         if self.BULK_UPDATE:
             self.csv_queue.put((result, is_rag))
-            return
         else:
-            # Save to JSON file then post to piction update endpoint
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            file_suffix = "_rag" if is_rag else ""
-            json_file = f"alt_text_update_{image_id}{file_suffix}_{timestamp}.json"
-            with open(json_file, "w", encoding="utf-8") as f:
-                json.dump(result, f, indent=2)
+            self._append_to_json(result, is_rag=is_rag)
+            self.logger.info(f"Data saved to {self.rag_output_file if is_rag else self.output_file}")
 
-            self.logger.info(f"Data saved to {json_file}")
-
-            # Post to piction update endpoint (only for non-RAG or if no standard version)
-            if not is_rag:
+            # Post to piction update endpoint.
+            # Without --with-rag, post the standard result.
+            # With --with-rag, post the RAG result instead.
+            if is_rag == self.WITH_RAG:
                 try:
                     response = requests.post(self.PICTION_UPDATE_ENDPOINT, json=result)
                     if response.status_code == 200:
@@ -960,6 +986,12 @@ class AltTextGenerator:
                 self.logger.info(
                     f"Starting generation from Piction Query API"
                 )
+                self._initialize_json()
+                if self.WITH_RAG:
+                    self._initialize_json(is_rag=True)
+                    self.logger.info(
+                        "--with-rag enabled: generating both standard and RAG versions; RAG results will be posted to Piction"
+                    )
                 # Loop through results from piction_query_endpoint
                 try:
                     self.logger.info(f"Looking for piction uploads from last {self.PICTION_QUERY_DAYS_SINCE} days")
@@ -973,7 +1005,11 @@ class AltTextGenerator:
                         self.logger.info(f"Processing image {idx}/{len(processed_updates)}: {image_id}")
                         accession_number = item.get('accession_number')
                         image_src = item.get('image_src')
-                        # If WITH_RAG, also generate RAG version
+
+                        result = self.generate_alt_text(image_src, accession_number)
+                        result["image_id"] = image_id
+                        self.save_data(result, image_id, is_rag=False)
+
                         if self.WITH_RAG:
                             self.logger.info(
                                 f"Generating RAG version for image {image_id}"
@@ -983,13 +1019,7 @@ class AltTextGenerator:
                             )
                             rag_result["image_id"] = image_id
                             self.save_data(rag_result, image_id, is_rag=True)
-                        else:
-                            self.logger.info(
-                                f"Generating alt text for image {image_id}"
-                            )
-                            result = self.generate_alt_text(image_src, accession_number)
-                            result["image_id"] = image_id
-                            self.save_data(result, image_id, is_rag=False)
+
                     self.logger.info("Generation of alt text using piction query / update endpoints complete")
                 except Exception as e:
                     self.logger.error(f"Error updating individual images: {e}")
@@ -1092,7 +1122,7 @@ Examples:
         "--output-file",
         type=str,
         default=None,
-        help="Output CSV file path (default: auto-generated with timestamp)",
+        help="Output file path or directory (default: auto-generated with timestamp in working directory)",
     )
     parser.add_argument(
         "--log-level",

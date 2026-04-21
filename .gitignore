@@ -5,4 +5,4 @@ venv
 *.yml
 !credentials.yml.example
 __pycache__
-*_results.json
+*.json
