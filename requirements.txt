@@ -43,9 +43,9 @@ multidict==6.7.0
 multiprocess==0.70.16
 networkx==3.6.1
 nh3==0.3.2
-numpy==2.2.6
+numpy==2.4.4
 open_clip_torch==3.2.0
-opencv-python==4.12.0.88
+opencv-python==4.13.0.92
 packaging==25.0
 pandas==2.3.3
 pillow==12.0.0
