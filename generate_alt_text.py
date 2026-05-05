@@ -276,6 +276,7 @@ class AltTextGenerator:
         else:
             self.logger.warning("No RAG directory specified or directory not found")
             self.rag_cache = []
+            self.rag_embeddings_cache = None
 
         self.cuda_disabled = False
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -330,13 +331,40 @@ class AltTextGenerator:
             raise
 
     def _cache_rag_examples(self):
-        """Cache RAG examples for thread-safe access"""
+        """
+        Cache RAG examples for thread-safe access.
+
+        Prefers a pre-computed embeddings.npz file in the RAG directory (written by
+        cache_rag_embeddings.py). Falls back to reading .txt files directly and
+        computing embeddings at runtime if no cache file is found.
+        """
         self.rag_cache = []
-        if self.rag_directory:
-            for file in Path(self.rag_directory).glob("*.txt"):
-                with open(file, "r", encoding="utf-8") as f:
-                    self.rag_cache.append(f.read())
-            self.logger.info(f"Cached {len(self.rag_cache)} RAG examples")
+        self.rag_embeddings_cache = None
+
+        if not self.rag_directory:
+            return
+
+        cache_path = Path(self.rag_directory) / "embeddings.npz"
+        if cache_path.exists():
+            data = np.load(cache_path, allow_pickle=True)
+            self.rag_cache = data["texts"].tolist()
+            self.rag_embeddings_cache = data["embeddings"]   # shape: (N, embedding_dim)
+            self.logger.info(
+                f"Loaded pre-computed embeddings for {len(self.rag_cache)} "
+                f"RAG examples from {cache_path}"
+            )
+            return
+
+        # Fall back to reading .txt files; embeddings will be computed at query time
+        self.logger.warning(
+            f"No embeddings.npz found in {self.rag_directory}. "
+            "RAG embeddings will be recomputed on every run. "
+            "Run cache_rag_embeddings.py to generate a cache."
+        )
+        for file in Path(self.rag_directory).glob("*.txt"):
+            with open(file, "r", encoding="utf-8") as f:
+                self.rag_cache.append(f.read())
+        self.logger.info(f"Cached {len(self.rag_cache)} RAG examples (text only)")
 
     def _backoff_sleep(self, attempt, base=2.0, cap=30.0):
         sleep = min(cap, base**attempt) + random.uniform(0.25, 1.0)
@@ -470,8 +498,17 @@ class AltTextGenerator:
             self.logger.warning(f"Failed to get artwork context: {e}")
             return None
 
-    # Find top 3 RAG examples by embedding similarity (memory efficient)
     def find_similar_rag_captions(self, generated_caption):
+        """
+        Return the top-3 RAG examples most similar to generated_caption.
+
+        Fast path: if a pre-computed embedding matrix was loaded from embeddings.npz,
+        embed only the generated caption and run a single batched cosine similarity
+        against the full matrix — no per-example CLIP calls.
+
+        Slow path: encode each RAG example individually at query time (used when no
+        cache file is present).
+        """
         if not self.rag_cache:
             return []
 
@@ -479,7 +516,19 @@ class AltTextGenerator:
             cap_emb = self._normalize_embedding(
                 self.generate_text_embeddings(generated_caption, self.device)
             )
-            # Use a min-heap to keep only top 3, avoiding storing all similarities
+
+            # Fast path — pre-computed embedding matrix available
+            if self.rag_embeddings_cache is not None:
+                scores = cosine_similarity(
+                    cap_emb.reshape(1, -1), self.rag_embeddings_cache
+                )[0]
+                top_indices = np.argsort(scores)[::-1][:3]
+                return [
+                    f"Example {rank + 1}:\n{self.rag_cache[i]}"
+                    for rank, i in enumerate(top_indices)
+                ]
+
+            # Slow path — encode each example individually
             from heapq import nlargest
 
             sims = []
@@ -490,12 +539,9 @@ class AltTextGenerator:
                 )[0][0]
                 sims.append((score, idx, ex))
 
-            # Get top 3
             top_n = nlargest(3, sims, key=lambda x: x[0])
-            results = []
-            for rank, (score, _, ex) in enumerate(top_n):
-                results.append(f"Example {rank+1}:\n{ex}")
-            return results
+            return [f"Example {rank+1}:\n{ex}" for rank, (_, _, ex) in enumerate(top_n)]
+
         except Exception as e:
             self.logger.warning(
                 f"Embedding similarity failed, using string matching: {e}"
@@ -1041,13 +1087,13 @@ def main():
         epilog="""
 Examples:
   # Process bulk data from CSV
-  python generate_alt_text_with_agents.py --bulk --bulk-data-path data.csv
+  python generate_alt_text.py --bulk --bulk-data-path data.csv
 
   # Process from Piction API (endpoints read from credentials.yml)
-  python generate_alt_text_with_agents.py
+  python generate_alt_text.py
 
   # Use a non-default credentials file
-  python generate_alt_text_with_agents.py --config /path/to/credentials.yml
+  python generate_alt_text.py --config /path/to/credentials.yml
         """,
     )
 
@@ -1160,7 +1206,7 @@ Examples:
     )
 
     logger = logging.getLogger(__name__)
-    logger.info("Starting Alt Text Generator (Memory-Optimized Version)")
+    logger.info("Starting Alt Text Generator")
     logger.info(f"Log level: {args.log_level}")
 
     # Validate arguments
