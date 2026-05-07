@@ -180,9 +180,6 @@ class AltTextGenerator:
         is_bulk=False,
         bulk_data_path=None,
         config_path="credentials.yml",
-        classifier_model="gemini-3-flash-preview",
-        captioner_model="gemini-3-flash-preview",
-        refinement_model="gemini-3-flash-preview",
         piction_days_since_query="1",
         max_retries=3,
         min_cosine=0.85,
@@ -215,12 +212,17 @@ class AltTextGenerator:
             cfg["gemini"]["service_account"],
             scopes=["https://www.googleapis.com/auth/cloud-platform"],
         )
-        self.CLASSIFIER_MODEL  = classifier_model
-        self.CAPTIONER_MODEL   = captioner_model
-        self.REFINEMENT_MODEL  = refinement_model
+
+        # Read model names from config; fall back to gemini-3-flash-preview if the
+        # models section is absent (e.g. on an older credentials.yml).
+        models_cfg = cfg.get("models", {})
+        self.CLASSIFIER_MODEL  = models_cfg.get("classifier",  "gemini-3-flash-preview")
+        self.CAPTIONER_MODEL   = models_cfg.get("captioner",   "gemini-3-flash-preview")
+        self.REFINEMENT_MODEL  = models_cfg.get("refinement",  "gemini-3-flash-preview")
+
         self.GEMINI_LOCATION = (
             "global"
-            if any(m.startswith("gemini-3") for m in [classifier_model, captioner_model, refinement_model])
+            if any(m.startswith("gemini-3") for m in [self.CLASSIFIER_MODEL, self.CAPTIONER_MODEL, self.REFINEMENT_MODEL])
             else "us-central1"
         )
         self.gemini_client = genai.Client(
@@ -1079,7 +1081,7 @@ class AltTextGenerator:
         finally:
             self._shutdown_concurrency()
 
-# Implement main function with arg parser including a help method
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate alt text for images using AI with embedding validation",
@@ -1111,24 +1113,6 @@ Examples:
         type=str,
         default="credentials.yml",
         help="Path to credentials YAML file (default: credentials.yml)",
-    )
-    parser.add_argument(
-        "--classifier-model",
-        type=str,
-        default="gemini-3-flash-preview",
-        help="Model used for image classification (default: gemini-3-flash-preview)",
-    )
-    parser.add_argument(
-        "--captioner-model",
-        type=str,
-        default="gemini-3-flash-preview",
-        help="Model used for initial caption generation (default: gemini-3-flash-preview)",
-    )
-    parser.add_argument(
-        "--refinement-model",
-        type=str,
-        default="gemini-3-flash-preview",
-        help="Model used for RAG refinement pass (default: gemini-3-flash-preview)",
     )
     parser.add_argument(
         "--piction-days-since-query",
@@ -1222,9 +1206,6 @@ Examples:
         is_bulk=args.bulk,
         bulk_data_path=args.bulk_data_path,
         config_path=args.config,
-        classifier_model=args.classifier_model,
-        captioner_model=args.captioner_model,
-        refinement_model=args.refinement_model,
         piction_days_since_query=args.piction_days_since_query,
         max_retries=args.max_retries,
         min_cosine=args.min_cosine,
