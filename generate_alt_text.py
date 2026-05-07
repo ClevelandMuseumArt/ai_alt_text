@@ -243,7 +243,7 @@ class AltTextGenerator:
             if p.suffix:
                 self.output_file = str(p)
                 self.rag_output_file = (
-                    str(p.parent / default_rag_filename) if with_rag else None
+                    str(p.parent / f"{p.stem}_rag{p.suffix}") if with_rag else None
                 )
             else:
                 self.output_file = str(p / default_filename)
