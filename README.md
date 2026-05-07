@@ -28,6 +28,7 @@ Copy `credentials.yml.example` to `credentials.yml` and fill in all values. This
 - Piction username, password, and endpoint URLs
 - Google Cloud project ID and service account credentials
 - Collection API base URL
+- Gemini model names for each generation step
 
 Requires `cma_piction` (internal CMA package, installed via git in `requirements.txt`).
 
@@ -122,9 +123,6 @@ Main generation script. Runs in two modes:
 python -m generate_alt_text \
   --bulk \
   --bulk-data-path image_data/my_data.csv \
-  --classifier-model gemini-3-pro-preview \
-  --captioner-model gemini-3-flash-preview \
-  --refinement-model gemini-3-flash-preview \
   --rag-directory rag_examples \
   --with-rag \
   --store-metrics \
@@ -149,9 +147,6 @@ python -m generate_alt_text --config /path/to/credentials.yml
 | `--bulk` | false | Enable bulk CSV processing mode |
 | `--bulk-data-path` | — | Path to input CSV (required with `--bulk`) |
 | `--config` | `credentials.yml` | Path to credentials YAML file |
-| `--classifier-model` | `gemini-3-flash-preview` | Model for image classification |
-| `--captioner-model` | `gemini-3-flash-preview` | Model for initial caption generation |
-| `--refinement-model` | `gemini-3-flash-preview` | Model for RAG refinement pass |
 | `--rag-directory` | — | Directory of RAG example `.txt` files used during refinement |
 | `--with-rag` | false | Also run a forced RAG refinement pass and write results to a second output file alongside the standard one. In Piction query mode, the RAG results are posted to the DAM instead of the standard results. |
 | `--store-metrics` | false | Include `cosine_similarity` column/field in output |
