@@ -153,7 +153,7 @@ python -m generate_alt_text --config /path/to/credentials.yml
 | `--min-cosine` | `0.25` | CLIP cosine similarity threshold |
 | `--max-retries` | `5` | Retry attempts per image |
 | `--max-workers` | `8` | Parallel worker threads (bulk mode) |
-| `--output-file` | auto | Output file path or directory. If a directory path is provided, a timestamped file is created there. If omitted, a timestamped file is created in the working directory. Bulk mode outputs `.csv`; Piction query mode outputs `.json`. |
+| `--output-file` | auto | Output file path or directory. If a specific filename is provided, the RAG output (when `--with-rag` is set) is written to the same directory with `_rag` inserted before the extension (e.g. `results.csv` → `results_rag.csv`). If a directory path is provided, both files are auto-generated with timestamps inside that directory. If omitted, both files are auto-generated with timestamps in the working directory. Bulk mode outputs `.csv`; Piction query mode outputs `.json`. |
 | `--piction-days-since-query` | `1` | Days back to query Piction for uploads |
 | `--log-level` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `--log-file` | — | Log file path prefix (timestamp appended) |
