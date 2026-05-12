@@ -181,6 +181,7 @@ class AltTextGenerator:
         bulk_data_path=None,
         config_path="credentials.yml",
         piction_days_since_query="1",
+        piction_loader_job=None,
         max_retries=3,
         min_cosine=0.85,
         rag_directory="",
@@ -196,8 +197,9 @@ class AltTextGenerator:
         self.BULK_DATA_PATH = bulk_data_path
         self.PICTION_BASE_URL = cfg["piction"]["base_url"]
         self.PICTION_QUERY_DAYS_SINCE = piction_days_since_query
+        self.PICTION_LOADER_JOB = piction_loader_job
         self.PICTION_QUERY_ENDPOINT = (
-            f"{self.PICTION_BASE_URL}{cfg['piction']['query_endpoint']}{piction_days_since_query}"
+            f"{self.PICTION_BASE_URL}{cfg['piction']['query_endpoint']}"
         )
         self.PICTION_UPDATE_ENDPOINT = (
             f"{self.PICTION_BASE_URL}{cfg['piction']['update_endpoint']}"
@@ -978,12 +980,15 @@ class AltTextGenerator:
         return processed_results
 
     def _query_piction_updated_images(self):
-        data = requests.get(self.PICTION_QUERY_ENDPOINT)
+        if self.PICTION_LOADER_JOB:
+            url = f"{self.PICTION_QUERY_ENDPOINT}LOADER_JOB:{self.PICTION_LOADER_JOB}"
+            self.logger.info(f"Querying Piction by loader job: {self.PICTION_LOADER_JOB}")
+        else:
+            url = f"{self.PICTION_QUERY_ENDPOINT}AGE:{self.PICTION_QUERY_DAYS_SINCE}"
+            self.logger.info(f"Querying Piction by age: last {self.PICTION_QUERY_DAYS_SINCE} day(s)")
+        data = requests.get(url)
         res_data = data.json()
-        results = []
-        if res_data.get('r'):
-            results = res_data.get('r')
-        return results
+        return res_data.get('r', [])
 
     # Generation tool - modified for streaming
     def run_generation(self):
@@ -1040,12 +1045,10 @@ class AltTextGenerator:
                     self.logger.info(
                         "--with-rag enabled: generating both standard and RAG versions; RAG results will be posted to Piction"
                     )
-                # Loop through results from piction_query_endpoint
                 try:
-                    self.logger.info(f"Looking for piction uploads from last {self.PICTION_QUERY_DAYS_SINCE} days")
                     unprocessed_updates = self._query_piction_updated_images()
                     if len(unprocessed_updates) == 0:
-                        self.logger.info(f"No recent piction uploads in {self.PICTION_QUERY_DAYS_SINCE} days")
+                        self.logger.info("No images returned from Piction query")
                         return
                     processed_updates = self._process_piction_updated_images(unprocessed_updates)
                     for idx, item in enumerate(processed_updates):
@@ -1091,8 +1094,11 @@ Examples:
   # Process bulk data from CSV
   python generate_alt_text.py --bulk --bulk-data-path data.csv
 
-  # Process from Piction API (endpoints read from credentials.yml)
-  python generate_alt_text.py
+  # Process from Piction API using age query (endpoints read from credentials.yml)
+  python generate_alt_text.py --piction-days-since-query 1
+
+  # Process from Piction API using a loader job
+  python generate_alt_text.py --piction-loader-job 12345
 
   # Use a non-default credentials file
   python generate_alt_text.py --config /path/to/credentials.yml
@@ -1118,7 +1124,13 @@ Examples:
         "--piction-days-since-query",
         type=str,
         default="1",
-        help="Piction days since query parameter"
+        help="Query Piction for images uploaded within the last N days (default: 1)",
+    )
+    parser.add_argument(
+        "--piction-loader-job",
+        type=str,
+        default=None,
+        help="Query Piction by loader job ID instead of by age",
     )
     parser.add_argument(
         "--max-retries",
@@ -1207,6 +1219,7 @@ Examples:
         bulk_data_path=args.bulk_data_path,
         config_path=args.config,
         piction_days_since_query=args.piction_days_since_query,
+        piction_loader_job=args.piction_loader_job,
         max_retries=args.max_retries,
         min_cosine=args.min_cosine,
         rag_directory=args.rag_directory,
