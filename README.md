@@ -116,7 +116,11 @@ Main generation script. Runs in two modes:
 
 **Bulk mode** — reads a CSV (from `artwork_bulk_load.py`), generates alt text for all rows in parallel, writes results to CSV.
 
-**Piction query mode** (default) — queries the Piction API for recently uploaded images, generates alt text, appends all results to a single JSON file, and posts results back to Piction. Without `--with-rag`, standard results are posted. With `--with-rag`, both standard and RAG results are generated and saved, but only the RAG results are posted to the DAM.
+**Piction query mode** (default) — queries the Piction API for images to process, generates alt text, appends all results to a single JSON file, and posts results back to Piction. Without `--with-rag`, standard results are posted. With `--with-rag`, both standard and RAG results are generated and saved, but only the RAG results are posted to the DAM.
+
+Piction query mode supports two query strategies, both using the single `query_endpoint` value from `credentials.yml`. The script appends either `AGE:N` or `LOADER_JOB:N` to that endpoint depending on which flag is used:
+- **Age query** (`--piction-days-since-query`) — appends `AGE:N` where N is the number of days.
+- **Loader job** (`--piction-loader-job`) — appends `LOADER_JOB:N` where N is the loader job ID. When provided, this takes precedence over the age query.
 
 ```shell
 # Bulk mode with RAG, storing metrics
@@ -128,9 +132,13 @@ python -m generate_alt_text \
   --store-metrics \
   --log-level DEBUG
 
-# Piction query mode (daily CRON use)
+# Piction query mode using age query (daily CRON use)
 python -m generate_alt_text \
   --piction-days-since-query 1
+
+# Piction query mode using a loader job
+python -m generate_alt_text \
+  --piction-loader-job 12345
 
 # Piction query mode with RAG results posted to DAM
 python -m generate_alt_text \
@@ -154,7 +162,8 @@ python -m generate_alt_text --config /path/to/credentials.yml
 | `--max-retries` | `5` | Retry attempts per image |
 | `--max-workers` | `8` | Parallel worker threads (bulk mode) |
 | `--output-file` | auto | Output file path or directory. If a specific filename is provided, the RAG output (when `--with-rag` is set) is written to the same directory with `_rag` inserted before the extension (e.g. `results.csv` → `results_rag.csv`). If a directory path is provided, both files are auto-generated with timestamps inside that directory. If omitted, both files are auto-generated with timestamps in the working directory. Bulk mode outputs `.csv`; Piction query mode outputs `.json`. |
-| `--piction-days-since-query` | `1` | Days back to query Piction for uploads |
+| `--piction-days-since-query` | `1` | Query Piction for images uploaded within the last N days. Ignored if `--piction-loader-job` is set. |
+| `--piction-loader-job` | — | Query Piction by loader job ID instead of by age. When provided, takes precedence over `--piction-days-since-query`. |
 | `--log-level` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `--log-file` | — | Log file path prefix (timestamp appended) |
 
@@ -162,7 +171,7 @@ python -m generate_alt_text --config /path/to/credentials.yml
 
 **Piction query mode output** — a single newline-delimited JSON file where each line is one result record with the same fields as above.
 
-When `--with-rag` is set, a second output file is written alongside the standard one with `_rag_` in the filename, containing the RAG-refined captions.
+When `--with-rag` is set, a second output file is written alongside the standard one with `_rag` in the filename, containing the RAG-refined captions.
 
 ---
 
