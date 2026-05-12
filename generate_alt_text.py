@@ -843,7 +843,7 @@ class AltTextGenerator:
         """Append a single result to JSON file as a newline-delimited record"""
         output_file = self.rag_output_file if is_rag else self.output_file
         with open(output_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(result) + "\n")
+            f.write(json.dumps(result, ensure_ascii=False) + "\n")
         self.logger.debug(
             f"Saved result for image {result.get('image_id')} to {output_file}"
         )
@@ -966,14 +966,14 @@ class AltTextGenerator:
                 web_image_info = web_image_data.get('1')
                 web_image_src = web_image_info.get('u')
                 web_image_url = f"{self.PICTION_BASE_URL}{web_image_src}"
-                accession_number = web_image_info.get('f').split('.jpg')[0]
+                accession_number = web_image_info.get('f').split('_')[0]
                 processed_results.append({
                     'image_id': image_id,
                     'image_src': web_image_url,
                     'accession_number': accession_number
                 })
-            except Exception:
-                self.logger.warning(f"Failed to process {item}")
+            except Exception as e:
+                self.logger.warning(f"Failed to process {item}: {e}")
                 continue
         return processed_results
 
